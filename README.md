@@ -3,7 +3,7 @@
 
 This repository provides a R code used to:
 
-(i) model trajectories of global cognition using latent process mixed model for multivariate longitudinal outcomes
+(i) model trajectories of global cognition using a latent process mixed model for multivariate longitudinal outcomes
 
 (ii) assign CRgen status based on corrected individual slopes
 
