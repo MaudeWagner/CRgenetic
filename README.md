@@ -1,7 +1,7 @@
 ## RESEARCH PAPER 
 ### Title: Associations of the LIBRA index with cognitive resilience to genetic susceptibility to dementia 
 
-This repository provides R codes used to:
+This repository provides a R code used to:
 
 (i) model trajectories of global cognition using latent process mixed model for multivariate longitudinal outcomes
 
