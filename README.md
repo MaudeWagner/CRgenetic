@@ -1,9 +1,15 @@
-Research Paper Title: Associations of the LIBRA index with cognitive resilience to genetic susceptibility to dementia 
+## RESEARCH PAPER 
+### Associations of the LIBRA index with cognitive resilience to genetic susceptibility to dementia 
 
 This repository provides R codes used to:
--- (i) define CRgen
--- (ii) account for the variability in our 2-stage approach using parametric bootstraps
--- (iii) yield forest plots - one example provided below.  
+
+(i) assign CR to genetic risk status
+
+(ii) account for the variability in our 2-stage approach using parametric bootstraps
+
+(iii) yield forest plots as below
+
+
 
 Figure 2. Multivariable-adjusted associations between the baseline LIfestyle for BRAin health (LIBRA) risk score, its individual components, and the odds of cognitive resilience in ApoE-ɛ4 carriers, the Three-City Study (n=1,103). 
 
