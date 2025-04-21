@@ -7,9 +7,12 @@ This repository provides R codes used to:
 
 (ii) assign CRgen status based on corrected individual slopes
 
-(iii) account for the uncertainty in the corrected slopes estimated in the first stage using parametric bootstraps
+(iii) examine the association of CRgen with LIBRA using a logistic regression model
 
-(iv) yield associations of CRgen with LIBRA in forest plots (cf. Figure below)
+(iv) account for the uncertainty in the corrected slopes estimated in the first stage using parametric bootstraps
+
+(v) display in a forest plot the association and the correct 95% confidence interval calculated using the total variance obtained by boostrap.
+
 
 
 Figure. Multivariable-adjusted associations between the baseline LIfestyle for BRAin health (LIBRA) risk score, its individual components, and the odds of cognitive resilience in ApoE-ɛ4 carriers. 
