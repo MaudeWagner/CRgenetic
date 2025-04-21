@@ -5,14 +5,13 @@ This repository provides a R code used to:
 
 (i) model trajectories of global cognition using a latent process mixed model for multivariate longitudinal outcomes
 
-(ii) assign CRgen status based on corrected individual slopes
+(ii) assign CRgen status based on corrected individual slopes estimated in (i)
 
-(iii) examine the association of CRgen with LIBRA using a logistic regression model
+(iii) examine the association of LIBRA on CRgen status using a logistic regression model
 
 (iv) account for the uncertainty in the corrected slopes estimated in the first stage using parametric bootstraps
 
-(v) display in a forest plot the association and the correct 95% confidence interval calculated using the total variance obtained by boostrap.
-
+(v) display in a forest plot the Odds Ratios obtained in (iii) and the correct 95% confidence interval calculated using the total variance obtained by boostrap in (iv).
 
 
 Figure. Multivariable-adjusted associations between the baseline LIfestyle for BRAin health (LIBRA) risk score, its individual components, and the odds of cognitive resilience in ApoE-ɛ4 carriers. 
