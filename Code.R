@@ -1,11 +1,13 @@
+######################################################################################################
+#####    R CODE FOR THE ASSOCIATION BETWEEN LIBRA & COGNITIVE RESILIENCE IN APOE-e4 CARRIERS     #####
+######################################################################################################
+
 ##### PACKAGES ##### 
 library(lcmm)
 library(NormPsy)
 library(lattice)
 library(ggpubr)
 library(Rmisc)
-library(splines)
-library(splines2)
 library(MASS)
 library(sqldf)
 library(dplyr)
@@ -14,456 +16,312 @@ library(viridis)
 library(lmtest)
 library(moments)
 library(dplyr, warn = FALSE)
-library(ggplot2)
 library(patchwork)
-library(readxl)
-library(xlsx)
 library(survminer)
 library(foreach) 
 library(doParallel)
+library(Cairo)
+
+## This code applies to the dataset named tab_cog, which contains the following longitudinal 
+## data (one row per visit):
+
+tab_cog = read.table(file="tab_cog.txt", header=T, sep="\t", dec=".")
+
+# time: follow-up time (years)
+# MMSE: Mini-Mental State Examination (points)
+# BENTON: Benton Visual Retention Test (points)
+# ISAAC_15: Isaacs’ Set Test (points) 
+# TMT_A: Trail Making Test – Part A (points)
+# TMT_B: Trail Making Test – Part B (points) 
+# visit0: 0=follow-up visit, 1=baseline
+
+## tab_cog also contains the time-invariant exposure and covariates:
+
+# LIBRA: LIBRA risk score at baseline (points)
+# sex: 0=men, 1=women
+# apoe4: 0=ApoE4 non-carriers, 1=carriers 
+# center: 0=Bordeaux, 1=Dijon, 2=Montpellier
+# ageBL_74: age at baseline given in decades and centered around 74 (mean age at baseline)
+# education: 0=no graduation, 1=high school graduate, 2=college graduate
+
+library("NormPsy","lcmm","ggplot2","Cairo")
+
+### Normalizing the MMSE using the NormPsy R package (doi:10.1159/000365637)
+tab_cog$norm_MMSE = normMMSE(tab_cog$MMSE)
+
+### Modeling trajectories of global cognition using a latent process mixed model for 
+### multivariate longitudinal outcomes adjusted for demographics and ApoE4. We used the 
+### multlcmm of the lcmm R package (doi:10.18637/jss.v078.i02).
+model_cognition = multlcmm(norm_MMSE + BENTON + ISAAC_15 + TMT_A + TMT_B ~ visit0 + 
+                     time + apoe4 + apoe4*time + sex + sex*time + ageBL_74 + ageBL_74*time + 
+                     education + education*time + center + center*time, random =~ time, subject = 'projid', randomY = T, 
+                     data = tab_cog, link = c('3-quant-splines','3-quant-splines', '3-quant-splines','3-quant-splines','3-quant-splines'))
+
+### Calculating the individual adjusted cognitive slopes in ApoE4 carriers and non-carriers
+beta_time       = model_cognition$best[9]    # fixed effect _time_   
+beta_apoe4_time = model_cognition$best[10]   # fixed effect _apoe4*time_   
+tempo1          = as.data.frame(model_cognition$predRE) 
+tempo1$RE_slope = tempo1$time # random slope parameters = var _time_ in model_cognition$predRE
+tempo1          = subset(tempo1, select = c("projid","RE_slope"))
+tempo2          = subset(tab_cog, visit0 == 1, select = c("projid", "apoe4", "LIBRA"))
+tab_cr          = merge(tempo1, tempo2, by = c("projid"), all = T)
+tab_cr$adj_slope = ifelse(tab_cr$apoe4 == 1, beta_time + beta_apoe4_time + tab_cr$RE_slope, beta_time + tab_cr$RE_slope)
+
+### Superimposing distributions of the adjusted cognitive slopes in e4-carriers and non-carriers 
+### with thresholds 50th vs. 75th percentiles depicted using dashed lines (cf. Figure 1)
+P50 = quantile(tab_cr$cor_slope, probs = c(0.50))   
+P75 = quantile(tab_cr$cor_slope, probs = c(0.75))     
+ggplot(tab_cr, aes(x = adj_slope)) + 
+  labs(y = "Frequency", x = "Individual adjusted slopes of global cognition") +
+  geom_histogram(aes(color = apoe4, fill = apoe4), colour = "grey20", alpha = 0.7) +
+  scale_fill_manual(values = c("#238A8DFF","#DCE319FF"), labels=c("ApoE-\u03B54 non-carriers","ApoE-\u03B54 carriers")) + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  geom_vline(xintercept = c(P50, P75), linetype="dashed")
 
 
-tab_tot3  = read.table(file="C:/Users/mwagner4/Downloads/LIBRA score/3C/tab_tot3.txt",header=T,sep="\t",dec=".")
-tab_tot3$DIPNIV_3cat = as.factor(tab_tot3$DIPNIV_3cat)
-tab_tot3$CENTRE = as.factor(tab_tot3$CENTRE)
-tab_tot3$SEXE = as.factor(tab_tot3$SEXE)
-dim(tab_tot3)
-tab_apoe_genotype   = read.table(file="C:/Users/mwagner4/Downloads/LIBRA score/3C/Apoe_genotype.txt",header=T,sep="\t",dec=".")
-str(tab_apoe_genotype)
-dim(tab_apoe_genotype) # N = 9294
-tab_tot3 = merge(tab_tot3, tab_apoe_genotype, by = "NUM")
-dim(tab_tot3)
-tab_tot3 = tab_tot3[order(tab_tot3$NUM, tab_tot3$SUIVI),]
-## merge of different CR measure ##
-tab_cov = subset(tab_tot3, select = c("NUM",
-                                      "genotype",
-                                      "scoreLIBRAF",
-                                      "AlcMod.libra",
-                                      "CoronaryDisease.libra",
-                                      "PhysicalInactivity.libra",
-                                      "RenalDisease.libra",
-                                      "Diabetes.libra",
-                                      "Hyperchol.libra",
-                                      "Tabac.libra",
-                                      "Obesity.libra",
-                                      "HTA.libra",
-                                      "MediDiet.libra",
-                                      "Depression.libra",
-                                      "CogAct.libra",
-                                      "follow",
-                                      "nb_tot_mmse",
-                                      "SUIVI0","time_y",
-                                      "SEXE","CENTRE","AGE0","AGE0_75",
-                                      "DIPNIV_3cat", "APOE4","MMSTT","norm_MMSE",
-                                      "BENTON","ISA_15","TMT_A","TMT_B"))
-tab_cov = tab_cov[order(tab_cov$NUM, tab_cov$SUIVI),]
-tab_APOE = as.data.frame(tab_cov %>% group_by(NUM) %>% filter(row_number(NUM) == 1))
+### Assigning CR_gen status to e4-carriers based on their adjusted cognitive slopes estimated
+### in the overall population (<50th percentile [non-resilient] vs. >=75th perc. [resilient])
+tab_cr$CR_gen = NA
+tab_cr$CR_gen = ifelse(tab_cr$adj_slope >= P75, 1, tab_cr$CR_gen)
+tab_cr$CR_gen = as.factor(ifelse(tab_cr$adj_slope < P50, 0, tab_cr$CR_gen))
 
-
-load(file='C:/Users/mwagner4/Downloads/LIBRA score/3C/m1_global_apoe4_splinesMMSE_bis.R')
-summary(m1_global_apoe4_splinesMMSE_bis) # without posfix
+### Fitting association between LIBRA (reverse scale) and CR_gen using a logistic regression model 
+tab_cr$LIBRA_reverse = tab_cr$LIBRA*(-1)
+model_libra  = glm(CR_gen ~ LIBRA_reverse + ageBL_74 + sex + education + center, family="binomial", data=tab_cr)
+summary(model_libra)
+exp(cbind(OR = coef(model_libra), confint(model_libra)))
 
 
 
-
-#############################
-####       BOOTSTRAPS   #####
-#############################
-m = m1_global_apoe4_splinesMMSE_bis
+##################################################
+###   PARAMETRIC BOOTSTRAPS, 1000 REPLICATES   ###
+##################################################
+m = model_cognition
+mtemp = m
 nboot = 1000
 mu    = as.matrix(estimates(m)) 
 Sigma = as.matrix(VarCov(m)) 
 boot  = as.matrix(mvrnorm(nboot, mu, Sigma))
-head(boot)
-mtemp = m
+beta_apoe4       = model_cognition$best[8]
+beta_time        = model_cognition$best[9]
+beta_apoe4_time  = model_cognition$best[10]
 
-########################################
-##  INDIVIDUAL SLOPES - Fixed effects ##
-########################################
-summary(m1_global_apoe4_splinesMMSE_bis)
-#
-beta_apoe4       = -0.08446
-beta_time        = -0.16728
-beta_apoe4_time  = -0.02662
-
-# mtemp = multlcmm(fixed = norm_MMSE + BENTON + ISA_15 + TMT_A + TMT_B ~ 
-#                    SUIVI0 + SEXE + CENTRE + AGE0_75 + DIPNIV_3cat + APOE4 + 
-#                    time_y + APOE4 * time_y + SEXE * time_y + DIPNIV_3cat * 
-#                    time_y + AGE0_75 * time_y + CENTRE * time_y, random = ~time_y, 
-#                  subject = "NUM", randomY = T, link = c("linear", "3-quant-splines", 
-#                                                         "3-quant-splines", "3-quant-splines", "3-quant-splines"), 
-#                  data = tab_tot3, maxiter = 0)
-# 
-# mtemp$best = boot[2,]
-# RE_boot = predictRE(mtemp, newdata = tab_tot3) # Vector B should be of length 41
-# head(RE_boot)
-# 
-# mtemp$best = boot[3,]
-# RE_boot = predictRE(mtemp, newdata = tab_tot3) # Vector B should be of length 41
-# head(RE_boot)
-
-
-
-
-for (i in 1:nboot){
+for (i in 1:nboot){ 
   
-  
+  # Boot
   mtemp$best = boot[i,]
-  RE_boot = predictRE(mtemp, newdata = tab_tot3) # Vector B should be of length 41
-  # head(RE_boot)
-  
-  ##########################################
-  ### CLASSIFICATION (modele avec APOE4) ###
-  ##########################################
-  tab_apoe = subset(tab_tot3, select = c("NUM", "APOE4"))
-  tempo    = as.data.frame(tab_apoe %>% group_by(NUM) %>% filter(row_number(NUM) == 1))
-  #dim(tempo) # n = 6774
-  # model with linear function of time #
+  RE_boot  = predictRE(mtemp, newdata = tab_cog) 
+  tab_apoe = subset(tab_cog, select = c("projid", "apoe4"))
+  tempo    = as.data.frame(tab_apoe %>% group_by(projid) %>% filter(row_number(projid) == 1))
   tempo1 = as.data.frame(RE_boot)
   tempo1$RE_int   = tempo1$intercept
   tempo1$RE_slope = tempo1$time_y
-  tempo1 = subset(tempo1, select = c("NUM","RE_int","RE_slope"))
-  #
-  tab_RE0 = merge(tempo1, tempo, by = c("NUM"), all = T)
-  #dim(tab_RE0) # n = 6774
+  tempo1 = subset(tempo1, select = c("projid","RE_int","RE_slope"))
+  tab_RE0 = merge(tempo1, tempo, by = c("projid"), all = T)
   
+  # CR slope <P50 vs. P>=75 (25% slowest)
+  tab_RE0$CR_gen = ifelse(tab_RE0$APOE4 == 1, tab_RE0$RE_slope + beta_time + beta_apoe4_time, tab_RE0$RE_slope + beta_time)
+  P50_slope = quantile(tab_RE0$CR_gen, probs = c(0.50))
+  P75_slope = quantile(tab_RE0$CR_gen, probs = c(0.75))
+  tab_RE0$CR_gen_P50_P75 = NA
+  tab_RE0$CR_gen_P50_P75 = ifelse(tab_RE0$CR_gen >= P75_slope, 1, tab_RE0$CR_gen_P50_P75)
+  tab_RE0$CR_gen_P50_P75 = as.factor(ifelse(tab_RE0$CR_gen < P50_slope, 0, tab_RE0$CR_gen_P50_P75))
+
+  # merging  
+  tab_CR = subset(tab_RE0, select= c("projid", "CR_gen", "CR_gen_P50_P75"))    
+  tab_CR_slope = merge(tab_APOE, tab_CR, by = c("projid"), all = T)  
 
   
-  ##########################
-  ### INTRA-DISTRIBUTION ###
-  ##########################
-  
-  # linear function of time #
-  tab_RE0$CR_level = ifelse(tab_RE0$APOE4 == 1, tab_RE0$RE_int + beta_apoe4, tab_RE0$RE_int)
-  tab_RE0$CR_slope = ifelse(tab_RE0$APOE4 == 1, tab_RE0$RE_slope + beta_time + beta_apoe4_time, tab_RE0$RE_slope + beta_time)
-  
-  ###########################
-  ## Cut-off for CR status ##
-  ###########################
-  # Linear time #
-  P50_level = quantile(tab_RE0$CR_level, probs = c(0.50))
-  P75_level = quantile(tab_RE0$CR_level, probs = c(0.75))
-  P50_slope = quantile(tab_RE0$CR_slope, probs = c(0.50))
-  P75_slope = quantile(tab_RE0$CR_slope, probs = c(0.75))
-  # c(P50_level, P75_level, P50_slope, P75_slope)
-  
-  
-  ##############
-  ## CR_SLOPE ##
-  ##############
-  ##############
-  ### LINEAR ###
-  ##############
-  # <P75 vs. P>=75 (25% slowest)
-  tab_RE0$CR_slope_P75_all = as.factor(ifelse(tab_RE0$CR_slope  >= P75_slope, 1, 0))
-  
-  # <P50 vs. P>=50 (50% slowest)
-  tab_RE0$CR_slope_P50_all = as.factor(ifelse(tab_RE0$CR_slope  >= P50_slope, 1, 0))
-  
-  # <P50 vs. P>=75 (25% slowest)
-  tab_RE0$CR_slope_P50_P75 = NA
-  tab_RE0$CR_slope_P50_P75 = ifelse(tab_RE0$CR_slope >= P75_slope, 1, tab_RE0$CR_slope_P50_P75)
-  tab_RE0$CR_slope_P50_P75 = as.factor(ifelse(tab_RE0$CR_slope < P50_slope, 0, tab_RE0$CR_slope_P50_P75))
-  
-  # summary(tab_RE0$CR_slope_P75_all)
-  # summary(tab_RE0$CR_slope_P50_all)
-  # summary(tab_RE0$CR_slope_P50_P75) # verif OK
-  
-  
-  ###########################
-  ####   MERGING DATA    ####
-  ###########################
-  #dim(tab_RE0)
-  tab_CR = subset(tab_RE0, select= c("NUM",
-                                     "CR_level",
-                                     "RE_slope",
-                                     "CR_slope",
-                                     "CR_slope_P75_all", # <P75 vs. P>=75 (25% slowest)
-                                     "CR_slope_P50_all", # <P50 vs. P>=50 (50% slowest)
-                                     "CR_slope_P50_P75"))  # <P50 vs. P>=75 (25% slowest)
-  
-  # dim(tab_APOE) # N = 6774 #
-  # dim(tab_CR)    # N = 6774 #
-  #
-  tab_CR_slope = merge(tab_APOE, tab_CR, by = c("NUM"), all = T)
-  tab_CR_slope$CogAct.libra     = as.factor(tab_CR_slope$CogAct.libra)
-  tab_CR_slope$MediDiet.libra   = as.factor(tab_CR_slope$MediDiet.libra)
-  tab_CR_slope$AlcMod.libra     = as.factor(tab_CR_slope$AlcMod.libra)
-  tab_CR_slope$CoronaryDisease.libra = as.factor(tab_CR_slope$CoronaryDisease.libra)
-  tab_CR_slope$PhysicalInactivity.libra = as.factor(tab_CR_slope$PhysicalInactivity.libra)
-  tab_CR_slope$RenalDisease.libra = as.factor(tab_CR_slope$RenalDisease.libra)
-  tab_CR_slope$Diabetes.libra   = as.factor(tab_CR_slope$Diabetes.libra)
-  tab_CR_slope$Hyperchol.libra  = as.factor(tab_CR_slope$Hyperchol.libra)
-  tab_CR_slope$Tabac.libra      = as.factor(tab_CR_slope$Tabac.libra)
-  tab_CR_slope$HTA.libra        = as.factor(tab_CR_slope$HTA.libra)
-  tab_CR_slope$Obesity.libra    = as.factor(tab_CR_slope$Obesity.libra)
-  tab_CR_slope$Depression.libra = as.factor(tab_CR_slope$Depression.libra)
-  # dim(tab_CR_slope) # n = 6774
-  
+  ## Association with reversed LIBRA ## 
   t = subset(tab_CR_slope, APOE4 == 1)
-  t$LIBRA2 = -t$scoreLIBRAF
+  t$LIBRA_reverse = t$LIBRA*(-1) 
   
-  ## LIBRA ## 
-  a = glm(CR_slope_P50_P75 ~ LIBRA2 + AGE0_75 + SEXE + DIPNIV_3cat + CENTRE, data=t, family = "binomial")
-  y = c(i,coef(a))
-  t1 = as.data.frame(y)
-  p1 = as.data.frame(coef(summary(a))[,'Pr(>|z|)'])
-  s1 = as.data.frame(coef(summary(a))[,'Std. Error'])
-  
-  a = glm(CR_slope_P75_all ~ LIBRA2 + AGE0_75 + SEXE + DIPNIV_3cat + CENTRE, data=t, family = "binomial")
-  y = c(i,coef(a))
-  t2 = as.data.frame(y)
-  p2 = as.data.frame(coef(summary(a))[,'Pr(>|z|)'])
-  s2 = as.data.frame(coef(summary(a))[,'Std. Error'])
-  
-  a = glm(CR_slope_P50_all ~ LIBRA2 + AGE0_75 + SEXE + DIPNIV_3cat + CENTRE, data=t, family = "binomial")
-  y = c(i,coef(a))
-  t3 = as.data.frame(y)
-  p3 = as.data.frame(coef(summary(a))[,'Pr(>|z|)'])
-  s3 = as.data.frame(coef(summary(a))[,'Std. Error'])
-  
-  # excluding e2/e4 
-  tempo = subset(t, genotype!="24")
-  a = glm(CR_slope_P50_P75 ~ LIBRA2 + AGE0_75 + SEXE + DIPNIV_3cat + CENTRE, data=tempo, family = "binomial")
-  y = c(i,coef(a))
-  t4 = as.data.frame(y)
-  p4 = as.data.frame(coef(summary(a))[,'Pr(>|z|)'])
-  s4 = as.data.frame(coef(summary(a))[,'Std. Error'])
-  
-  # excluding e4/e4 
-  tempo = subset(t, genotype!="44")
-  a = glm(CR_slope_P50_P75 ~ LIBRA2 + AGE0_75 + SEXE + DIPNIV_3cat + CENTRE, data=tempo, family = "binomial")
-  y = c(i,coef(a))
-  t5 = as.data.frame(y)
-  p5 = as.data.frame(coef(summary(a))[,'Pr(>|z|)'])
-  s5 = as.data.frame(coef(summary(a))[,'Std. Error'])
+  model_libra = glm(CR_slope_P50_P75 ~ LIBRA_reverse + ageBL_74 + sex + education + center, data=t, family = "binomial")
+  b1 = as.data.frame(coef(summary(model_libra))[,'Estimate'])
+  s1 = as.data.frame(coef(summary(model_libra))[,'Std. Error'])
   
   if (i==1){ 
-    tab_boot_P50_P75_libra = t1
-    tab_boot_P75_all_libra = t2
-    tab_boot_P50_all_libra = t3 
-    tab_boot_P50_P75_libra_e2e4 = t4
-    tab_boot_P50_P75_libra_e4e4 = t5
-    #
+    
+    tab_boot_P50_P75_libra = b1
     sd_boot_P50_P75_libra = s1
-    sd_boot_P75_all_libra = s2
-    sd_boot_P50_all_libra = s3 
-    sd_boot_P50_P75_libra_e2e4 = s4 
-    sd_boot_P50_P75_libra_e4e4 = s5
-    #
-    p_boot_P50_P75_libra = p1
-    p_boot_P75_all_libra = p2
-    p_boot_P50_all_libra = p3 
-    p_boot_P50_P75_libra_e2e4 = p4 
-    p_boot_P50_P75_libra_e4e4 = p5
-    
-  } else if (i>1){ 
-    tab_boot_P50_P75_libra = cbind(tab_boot_P50_P75_libra, t1) 
-    tab_boot_P75_all_libra = cbind(tab_boot_P75_all_libra, t2) 
-    tab_boot_P50_all_libra = cbind(tab_boot_P50_all_libra, t3)
-    tab_boot_P50_P75_libra_e2e4 = cbind(tab_boot_P50_P75_libra_e2e4, t4) 
-    tab_boot_P50_P75_libra_e4e4 = cbind(tab_boot_P50_P75_libra_e4e4, t5)  
-    #
-    sd_boot_P50_P75_libra = cbind(sd_boot_P50_P75_libra, s1) 
-    sd_boot_P75_all_libra = cbind(sd_boot_P75_all_libra, s2) 
-    sd_boot_P50_all_libra = cbind(sd_boot_P50_all_libra, s3)  
-    sd_boot_P50_P75_libra_e2e4 = cbind(sd_boot_P50_P75_libra_e2e4, s4) 
-    sd_boot_P50_P75_libra_e4e4 = cbind(sd_boot_P50_P75_libra_e4e4, s5) 
-    #
-    p_boot_P50_P75_libra = cbind(p_boot_P50_P75_libra, p1) 
-    p_boot_P75_all_libra = cbind(p_boot_P75_all_libra, p2) 
-    p_boot_P50_all_libra = cbind(p_boot_P50_all_libra, p3)
-    p_boot_P50_P75_libra_e2e4 = cbind(p_boot_P50_P75_libra_e2e4, p4) 
-    p_boot_P50_P75_libra_e4e4 = cbind(p_boot_P50_P75_libra_e4e4, p5)
-  } 
-  
-  
-  ## Components ##
-  a = glm(CR_slope_P50_P75 ~ CogAct.libra +
-            AlcMod.libra +
-            MediDiet.libra +
-            #
-            CoronaryDisease.libra +
-            Tabac.libra+
-            Obesity.libra+
-            Depression.libra +
-            HTA.libra+
-            Diabetes.libra+
-            PhysicalInactivity.libra +
-            RenalDisease.libra+
-            Hyperchol.libra+
-            AGE0_75 + SEXE + DIPNIV_3cat + CENTRE, data=t, family = "binomial")
-  y = c(i,coef(a))
-  t1 = as.data.frame(y)
-  p1 = as.data.frame(coef(summary(a))[,'Pr(>|z|)'])
-  s1 = as.data.frame(coef(summary(a))[,'Std. Error'])
-  
-  a = glm(CR_slope_P75_all ~ CogAct.libra +
-            AlcMod.libra +
-            MediDiet.libra +
-            #
-            CoronaryDisease.libra +
-            Tabac.libra+
-            Obesity.libra+
-            Depression.libra +
-            HTA.libra+
-            Diabetes.libra+
-            PhysicalInactivity.libra +
-            RenalDisease.libra+
-            Hyperchol.libra+
-            AGE0_75 + SEXE + DIPNIV_3cat + CENTRE, data=t, family = "binomial")
-  y = c(i,coef(a))
-  t2 = as.data.frame(y)
-  p2 = as.data.frame(coef(summary(a))[,'Pr(>|z|)'])
-  s2 = as.data.frame(coef(summary(a))[,'Std. Error'])
-  
-  a = glm(CR_slope_P50_all ~ CogAct.libra +
-            AlcMod.libra +
-            MediDiet.libra +
-            #
-            CoronaryDisease.libra +
-            Tabac.libra+
-            Obesity.libra+
-            Depression.libra +
-            HTA.libra+
-            Diabetes.libra+
-            PhysicalInactivity.libra +
-            RenalDisease.libra+
-            Hyperchol.libra+
-            AGE0_75 + SEXE + DIPNIV_3cat + CENTRE, data=t, family = "binomial")
-  y = c(i,coef(a))
-  t3 = as.data.frame(y)
-  p3 = as.data.frame(coef(summary(a))[,'Pr(>|z|)'])
-  s3 = as.data.frame(coef(summary(a))[,'Std. Error'])
-  
-  # excluding e2/e4 
-  tempo = subset(t, genotype!="24")
-  a = glm(CR_slope_P50_all ~ CogAct.libra +
-            AlcMod.libra +
-            MediDiet.libra +
-            #
-            CoronaryDisease.libra +
-            Tabac.libra+
-            Obesity.libra+
-            Depression.libra +
-            HTA.libra+
-            Diabetes.libra+
-            PhysicalInactivity.libra +
-            RenalDisease.libra+
-            Hyperchol.libra+
-            AGE0_75 + SEXE + DIPNIV_3cat + CENTRE, data=tempo, family = "binomial")
-  y = c(i,coef(a))
-  t4 = as.data.frame(y)
-  p4 = as.data.frame(coef(summary(a))[,'Pr(>|z|)'])
-  s4 = as.data.frame(coef(summary(a))[,'Std. Error'])
-  
-  # excluding e4/e4 
-  tempo = subset(t, genotype!="44")
-  a = glm(CR_slope_P50_all ~ CogAct.libra +
-            AlcMod.libra +
-            MediDiet.libra +
-            #
-            CoronaryDisease.libra +
-            Tabac.libra+
-            Obesity.libra+
-            Depression.libra +
-            HTA.libra+
-            Diabetes.libra+
-            PhysicalInactivity.libra +
-            RenalDisease.libra+
-            Hyperchol.libra+
-            AGE0_75 + SEXE + DIPNIV_3cat + CENTRE, data=tempo, family = "binomial")
-  y = c(i,coef(a))
-  t5 = as.data.frame(y)
-  p5 = as.data.frame(coef(summary(a))[,'Pr(>|z|)'])
-  s5 = as.data.frame(coef(summary(a))[,'Std. Error'])
-  
-  if (i==1){ 
-    
-    tab_boot_P50_P75_compo = t1     
-    tab_boot_P75_all_compo = t2 
-    tab_boot_P50_all_compo = t3 
-    tab_boot_P50_P75_compo_e2e4 = t4
-    tab_boot_P50_P75_compo_e4e4 = t5
-    #
-    sd_boot_P50_P75_compo = s1
-    sd_boot_P75_all_compo = s2
-    sd_boot_P50_all_compo = s3 
-    sd_boot_P50_P75_compo_e2e4 = s4 
-    sd_boot_P50_P75_compo_e4e4 = s5
-    #
-    p_boot_P50_P75_compo = p1
-    p_boot_P75_all_compo = p2
-    p_boot_P50_all_compo = p3 
-    p_boot_P50_P75_compo_e2e4 = p4 
-    p_boot_P50_P75_compo_e4e4 = p5
     
   } else if (i>1){ 
     
-    tab_boot_P50_P75_compo = cbind(tab_boot_P50_P75_compo, t1) 
-    tab_boot_P75_all_compo = cbind(tab_boot_P75_all_compo, t2) 
-    tab_boot_P50_all_compo = cbind(tab_boot_P50_all_compo, t3) 
-    tab_boot_P50_P75_compo_e2e4 = cbind(tab_boot_P50_P75_compo_e2e4, t4) 
-    tab_boot_P50_P75_compo_e4e4 = cbind(tab_boot_P50_P75_compo_e4e4, t5) 
-    #
-    sd_boot_P50_P75_compo = cbind(sd_boot_P50_P75_compo, s1) 
-    sd_boot_P75_all_compo = cbind(sd_boot_P75_all_compo, s2) 
-    sd_boot_P50_all_compo = cbind(sd_boot_P50_all_compo, s3)  
-    sd_boot_P50_P75_compo_e2e4 = cbind(sd_boot_P50_P75_compo_e2e4, s4) 
-    sd_boot_P50_P75_compo_e4e4 = cbind(sd_boot_P50_P75_compo_e4e4, s5) 
-    #
-    p_boot_P50_P75_compo = cbind(p_boot_P50_P75_compo, p1) 
-    p_boot_P75_all_compo = cbind(p_boot_P75_all_compo, p2) 
-    p_boot_P50_all_compo = cbind(p_boot_P50_all_compo, p3)
-    p_boot_P50_P75_compo_e2e4 = cbind(p_boot_P50_P75_compo_e2e4, p4) 
-    p_boot_P50_P75_compo_e4e4 = cbind(p_boot_P50_P75_compo_e4e4, p5)
-    
-  } 
+    tab_boot_P50_P75_libra = cbind(tab_boot_P50_P75_libra, b1) 
+    sd_boot_P50_P75_libra = cbind(sd_boot_P50_P75_libra, s1)
   
+  } 
+    
   i = i + 1
-  print(i)
-  
+  print(i) 
   
 }
 
-# LIBRA
+write.table(tab_boot_P50_P75_libra, "~/tab_boot_P50_P75_libra.txt",sep="\t",  row.names=F)
 
-write.table(tab_boot_P50_P75_libra, "C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/tab_boot_P50_P75_libra.txt",sep="\t",  row.names=F)
-write.table(tab_boot_P75_all_libra, "C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/tab_boot_P75_all_libra.txt",sep="\t",  row.names=F)
-write.table(tab_boot_P50_all_libra, "C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/tab_boot_P50_all_libra.txt",sep="\t",  row.names=F)
-write.table(tab_boot_P50_P75_libra_e2e4, "C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/tab_boot_P50_P75_libra_e2e4.txt",sep="\t",  row.names=F)
-write.table(tab_boot_P50_P75_libra_e4e4, "C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/tab_boot_P50_P75_libra_e4e4.txt",sep="\t",  row.names=F)
 
-write.table(sd_boot_P50_P75_libra, "C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/sd_boot_P50_P75_libra.txt",sep="\t",  row.names=F)
-write.table(sd_boot_P75_all_libra, "C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/sd_boot_P75_all_libra.txt",sep="\t",  row.names=F)
-write.table(sd_boot_P50_all_libra, "C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/sd_boot_P50_all_libra.txt",sep="\t",  row.names=F)
-write.table(sd_boot_P50_P75_libra_e2e4, "C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/sd_boot_P50_P75_libra_e2e4.txt",sep="\t",  row.names=F)
-write.table(sd_boot_P50_P75_libra_e4e4, "C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/sd_boot_P50_P75_libra_e4e4.txt",sep="\t",  row.names=F)
+######################################################
+###   Total Variance  and 95% confidence intervals ###
+######################################################
 
-write.table(p_boot_P50_P75_libra, "C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/p_boot_P50_P75_libra.txt",sep="\t",  row.names=F)
-write.table(p_boot_P75_all_libra, "C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/p_boot_P75_all_libra.txt",sep="\t",  row.names=F)
-write.table(p_boot_P50_all_libra, "C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/p_boot_P50_all_libra.txt",sep="\t",  row.names=F)
-write.table(p_boot_P50_P75_libra_e2e4, "C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/p_boot_P50_P75_libra_e2e4.txt",sep="\t",  row.names=F)
-write.table(p_boot_P50_P75_libra_e4e4, "C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/p_boot_P50_P75_libra_e4e4.txt",sep="\t",  row.names=F)
+tab = tab_boot_P50_P75_libra
+sd  = sd_boot_P50_P75_libra
+mean_estimate = rowSums(tab[3,])/1000
+V_within  = rowSums(sd[2,]**2)/1000
+V_between = (rowSums(tab[3,] - mean_estimate)**2)/(1000-1)
+V_tot     = V_within + V_between + V_between/1000
 
-# Compo
+# calculation of 95%CI based on original beta and SE_boot
+binf = coef(model_libra)[2] - 1.96*sqrt(V_tot)
+bsup = coef(model_libra)[2] + 1.96*sqrt(V_tot)
 
-write.table(tab_boot_P50_P75_compo, "C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/tab_boot_P50_P75_compo.txt",sep="\t",  row.names=F)
-write.table(tab_boot_P75_all_compo, "C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/tab_boot_P75_all_compo.txt",sep="\t",  row.names=F)
-write.table(tab_boot_P50_all_compo, "C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/tab_boot_P50_all_compo.txt",sep="\t",  row.names=F)
-write.table(tab_boot_P50_P75_compo_e2e4, "C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/tab_boot_P50_P75_compo_e2e4.txt",sep="\t",  row.names=F)
-write.table(tab_boot_P50_P75_compo_e4e4, "C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/tab_boot_P50_P75_compo_e4e4.txt",sep="\t",  row.names=F)
 
-write.table(sd_boot_P50_P75_compo, "C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/sd_boot_P50_P75_compo.txt",sep="\t",  row.names=F)
-write.table(sd_boot_P75_all_compo, "C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/sd_boot_P75_all_compo.txt",sep="\t",  row.names=F)
-write.table(sd_boot_P50_all_compo, "C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/sd_boot_P50_all_compo.txt",sep="\t",  row.names=F)
-write.table(sd_boot_P50_P75_compo_e2e4, "C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/sd_boot_P50_P75_compo_e2e4.txt",sep="\t",  row.names=F)
-write.table(sd_boot_P50_P75_compo_e4e4, "C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/sd_boot_P50_P75_compo_e4e4.txt",sep="\t",  row.names=F)
+##########################
+###    Forest Plot     ###
+##########################
 
-write.table(p_boot_P50_P75_compo, "C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/p_boot_P50_P75_compo.txt",sep="\t",  row.names=F)
-write.table(p_boot_P75_all_compo, "C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/p_boot_P75_all_compo.txt",sep="\t",  row.names=F)
-write.table(p_boot_P50_all_compo, "C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/p_boot_P50_all_compo.txt",sep="\t",  row.names=F)
-write.table(p_boot_P50_P75_compo_e2e4, "C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/p_boot_P50_P75_compo_e2e4.txt",sep="\t",  row.names=F)
-write.table(p_boot_P50_P75_compo_e4e4, "C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/p_boot_P50_P75_compo_e4e4.txt",sep="\t",  row.names=F)
+
+#c = 1.106 # original
+c = round(exp(original_estimate),3) # boot
+d = round(exp(binf),3)
+e = round(exp(bsup),3)
+c(c,d,e)
+f = "("
+g = ","
+h = ")"
+space = " "
+i = paste(c,space,f,d,g,space,e,h, sep="")
+j = paste(d,g,space,e, sep="")
+#
+fig1a = data.frame(treatmentgroup = "999999 - LIBRA score (reversed scale)",
+                   rr     = c,
+                   low_ci = d,
+                   up_ci  = e,
+                   RR_ci = i,
+                   ci = j,
+                   X = "COPD",
+                   no = 1)
+
+
+## COMPO ##
+
+original_estimate = c(0.491, 
+                      0.169,
+                      0.046, 
+                      -1.038, 
+                      -0.457,
+                      -0.433,
+                      -0.197,
+                      0.012,
+                      0.026,
+                      0.094,
+                      0.144,
+                      0.226)
+
+# calculation of SE on boot
+tab = tab_boot_P50_P75_compo
+sd  = sd_boot_P50_P75_compo
+mean_estimate = rowSums(tab[3:14,])/1000
+V_within  = rowSums(sd[2:13,]**2)/1000
+V_between = (rowSums(tab[3:14,] - mean_estimate)**2)/(1000-1)
+V_tot     = V_within + V_between + V_between/1000
+
+# calculation of 95%CI based on original beta and SE_boot
+binf      = original_estimate - 1.96*sqrt(V_tot)
+bsup      = original_estimate + 1.96*sqrt(V_tot)
+#
+u = c("9999 - High cognitive activity",
+      "999 - Low-to-moderate alcohol",
+      "99 - Healthy diet",
+      #
+      "9 - Coronary heart disease",
+      "8 - Current smoker",
+      "7 - Obesity",
+      "6 - Depressive symptoms",
+      "5 - Hypertension",
+      "4 - Diabetes",
+      "3 - Physical inactivity",
+      "2 - Renal dysfunction",
+      "1 - High cholesterol")
+#
+c = round(exp(original_estimate),3)
+d = round(exp(binf),3)
+e = round(exp(bsup),3)
+f = "("
+g = ","
+h = ")"
+space = " "
+i = paste(c,space,f,d,g,space,e,h, sep="")
+j = paste(d,g,space,e, sep="")
+
+#
+fig11a = data.frame(treatmentgroup = u,
+                    rr     = c,
+                    low_ci = d,
+                    up_ci  = e,
+                    RR_ci = i,
+                    ci = j,
+                    X = "COPD",
+                    no = seq(4,15,1))
+
+forestplot_P50_P75 = as.data.frame(rbind(fig1a,fig11a))
+
+write.table(forestplot_P50_P75, "C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/forestplot_P50_P75.txt",sep="\t",  row.names=F)
+
+forestplot_P50_P75  = read.table(file="C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/forestplot_P50_P75.txt",header=T,sep="\t",dec=".")
+
+
+##### LIBRA score alone #####
+
+##### ALL COMPONENTS  #####
+
+forest <-  ggplot(
+  data = forestplot_P50_P75,
+  aes(x = treatmentgroup, y = rr, ymin = low_ci, ymax = up_ci)) +
+  geom_pointrange(aes(col = treatmentgroup), size=0.4) +
+  geom_hline(yintercept = 1, colour = "grey", lty = 2, size=0.7) +
+  xlab("") +
+  ylab("Odd Ratio (95%CI)") +
+  geom_errorbar(aes(ymin = low_ci, ymax = up_ci, col = treatmentgroup), width = 0, cex = 1.5) +
+  facet_wrap(~X, strip.position = "top", nrow = 9, scales = "free_y") +
+  theme_classic() +
+  theme(
+    panel.background = element_blank(), strip.background = element_rect(colour = NA, fill = NA),
+    strip.text.y = element_text(face = "bold", size = 10),
+    panel.grid.major.y = element_line(colour = col_grid, size = 0.5),
+    strip.text = element_text(color = "white"),
+    panel.border = element_rect(fill = NA, color = "black"),
+    legend.position = "none",
+    axis.text = element_text(face = "bold", size = 10),
+    axis.title = element_text(face = "bold", size = 10),
+    plot.title = element_text("none")) +
+  coord_flip()
+
+dat_table <- forestplot_P50_P75 %>%
+  select(treatmentgroup, X, RR_ci) %>%
+  tidyr::pivot_longer(c(RR_ci), names_to = "stat") %>%
+  mutate(stat = factor(stat, levels = c("RR_ci")))
+
+table_base <- ggplot(dat_table, aes(stat, treatmentgroup, label = value)) +
+  geom_text(size = 3.5) +
+  scale_x_discrete(position = "top", labels = c("Odd Ratio (95%CI)")) +
+  facet_wrap(~X, strip.position = "top", ncol = 1, scales = "free_y",
+             labeller = labeller(X = c(Cancer = "", COPD = ""))) +
+  labs(y = NULL, x = NULL) +
+  theme_classic() +
+  theme(
+    strip.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.border = element_blank(),
+    axis.line = element_blank(),
+    axis.text.y = element_blank(),
+    axis.text.x = element_text(size = 10),
+    axis.ticks = element_blank(),
+    axis.title = element_text(face = "bold"),
+  )
+
+forest + table_base + plot_layout(widths = c(15, 8))
+
+
 
 
