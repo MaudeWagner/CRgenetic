@@ -25,7 +25,8 @@ library(Cairo)
 ## This code applies to the dataset named tab_cog, which contains the following longitudinal 
 ## data (one row per visit):
 
-tab_cog = read.table(file="tab_cog.txt", header=T, sep="\t", dec=".")
+tab_cog = read.table(file="~/tab_cog.txt", header=T, sep="\t", dec=".")
+tab_V0  = subset(tab_cog, visit0 == 1)
 
 # time: follow-up time (years)
 # MMSE: Mini-Mental State Examination (points)
@@ -63,7 +64,7 @@ beta_apoe4_time = model_cognition$best[10]   # fixed effect _apoe4*time_
 tempo1          = as.data.frame(model_cognition$predRE) 
 tempo1$RE_slope = tempo1$time # random slope parameters = var _time_ in model_cognition$predRE
 tempo1          = subset(tempo1, select = c("projid","RE_slope"))
-tempo2          = subset(tab_cog, visit0 == 1, select = c("projid", "apoe4", "LIBRA"))
+tempo2          = subset(tab_cog, visit0 == 1, select = c("projid", "apoe4"))
 tab_cr          = merge(tempo1, tempo2, by = c("projid"), all = T)
 tab_cr$adj_slope = ifelse(tab_cr$apoe4 == 1, beta_time + beta_apoe4_time + tab_cr$RE_slope, beta_time + tab_cr$RE_slope)
 
@@ -86,23 +87,19 @@ tab_cr$CR_gen = ifelse(tab_cr$adj_slope >= P75, 1, tab_cr$CR_gen)
 tab_cr$CR_gen = as.factor(ifelse(tab_cr$adj_slope < P50, 0, tab_cr$CR_gen))
 
 ### Fitting association between LIBRA (reverse scale) and CR_gen using a logistic regression model 
-tab_cr$LIBRA_reverse = tab_cr$LIBRA*(-1)
-model_libra  = glm(CR_gen ~ LIBRA_reverse + ageBL_74 + sex + education + center, family="binomial", data=tab_cr)
-summary(model_libra)
-exp(cbind(OR = coef(model_libra), confint(model_libra)))
-
+tab_libra = merge(tab_V0, tab_cr, by = c("projid"))
+tab_libra$LIBRA_reverse = tab_libra$LIBRA*(-1)
+model_libra  = glm(CR_gen ~ LIBRA_reverse + ageBL_74 + sex + education + center, family="binomial", data=tab_libra)
 
 
 ##################################################
 ###   PARAMETRIC BOOTSTRAPS, 1000 REPLICATES   ###
 ##################################################
-m = model_cognition
-mtemp = m
+m = mtemp = model_cognition
 nboot = 1000
 mu    = as.matrix(estimates(m)) 
 Sigma = as.matrix(VarCov(m)) 
 boot  = as.matrix(mvrnorm(nboot, mu, Sigma))
-beta_apoe4       = model_cognition$best[8]
 beta_time        = model_cognition$best[9]
 beta_apoe4_time  = model_cognition$best[10]
 
@@ -121,55 +118,50 @@ for (i in 1:nboot){
   
   # CR slope <P50 vs. P>=75 (25% slowest)
   tab_RE0$CR_gen = ifelse(tab_RE0$APOE4 == 1, tab_RE0$RE_slope + beta_time + beta_apoe4_time, tab_RE0$RE_slope + beta_time)
-  P50_slope = quantile(tab_RE0$CR_gen, probs = c(0.50))
-  P75_slope = quantile(tab_RE0$CR_gen, probs = c(0.75))
+  P50 = quantile(tab_RE0$CR_gen, probs = c(0.50))
+  P75 = quantile(tab_RE0$CR_gen, probs = c(0.75))
   tab_RE0$CR_gen_P50_P75 = NA
-  tab_RE0$CR_gen_P50_P75 = ifelse(tab_RE0$CR_gen >= P75_slope, 1, tab_RE0$CR_gen_P50_P75)
-  tab_RE0$CR_gen_P50_P75 = as.factor(ifelse(tab_RE0$CR_gen < P50_slope, 0, tab_RE0$CR_gen_P50_P75))
+  tab_RE0$CR_gen_P50_P75 = ifelse(tab_RE0$CR_gen >= P75, 1, tab_RE0$CR_gen_P50_P75)
+  tab_RE0$CR_gen_P50_P75 = as.factor(ifelse(tab_RE0$CR_gen < P50, 0, tab_RE0$CR_gen_P50_P75))
 
   # merging  
   tab_CR = subset(tab_RE0, select= c("projid", "CR_gen", "CR_gen_P50_P75"))    
-  tab_CR_slope = merge(tab_APOE, tab_CR, by = c("projid"), all = T)  
+  tab_CR_slope = merge(tab_V0, tab_CR, by = c("projid"), all = T)  
 
   
   ## Association with reversed LIBRA ## 
-  t = subset(tab_CR_slope, APOE4 == 1)
-  t$LIBRA_reverse = t$LIBRA*(-1) 
-  
-  model_libra = glm(CR_slope_P50_P75 ~ LIBRA_reverse + ageBL_74 + sex + education + center, data=t, family = "binomial")
-  b1 = as.data.frame(coef(summary(model_libra))[,'Estimate'])
-  s1 = as.data.frame(coef(summary(model_libra))[,'Std. Error'])
+  tab_libra = subset(tab_CR_slope, apoe4 == 1)
+  tab_libra$LIBRA_reverse = tab_libra$LIBRA*(-1) 
+  model_libra = glm(CR_slope_P50_P75 ~ LIBRA_reverse + ageBL_74 + sex + education + center, data=tab_libra, family = "binomial")
+  b = as.data.frame(coef(summary(model_libra))[,'Estimate'])
+  se = as.data.frame(coef(summary(model_libra))[,'Std. Error'])
   
   if (i==1){ 
     
-    tab_boot_P50_P75_libra = b1
-    sd_boot_P50_P75_libra = s1
+    b_boot_P50_P75_libra  = b
+    se_boot_P50_P75_libra = se
     
   } else if (i>1){ 
     
-    tab_boot_P50_P75_libra = cbind(tab_boot_P50_P75_libra, b1) 
-    sd_boot_P50_P75_libra = cbind(sd_boot_P50_P75_libra, s1)
+    b_boot_P50_P75_libra  = cbind(b_boot_P50_P75_libra, b) 
+    se_boot_P50_P75_libra = cbind(se_boot_P50_P75_libra, se)
   
   } 
     
   i = i + 1
-  print(i) 
   
 }
 
-write.table(tab_boot_P50_P75_libra, "~/tab_boot_P50_P75_libra.txt",sep="\t",  row.names=F)
-
+write.table(b_boot_P50_P75_libra, "~/b_boot_P50_P75_libra.txt", sep="\t",  row.names=F)
+write.table(se_boot_P50_P75_libra, "~/se_boot_P50_P75_libra.txt", sep="\t",  row.names=F)
 
 ######################################################
 ###   Total Variance  and 95% confidence intervals ###
 ######################################################
-
-tab = tab_boot_P50_P75_libra
-sd  = sd_boot_P50_P75_libra
-mean_estimate = rowSums(tab[3,])/1000
-V_within  = rowSums(sd[2,]**2)/1000
-V_between = (rowSums(tab[3,] - mean_estimate)**2)/(1000-1)
-V_tot     = V_within + V_between + V_between/1000
+mean_b    = rowSums(b_boot_P50_P75_libra[2,])/nboot
+V_within  = rowSums(se_boot_P50_P75_libra[2,]**2)/nboot
+V_between = (rowSums(b_boot_P50_P75_libra[2,]-mean_b)**2)/(nboot-1)
+V_tot     = V_within + V_between + V_between/nboot
 
 # calculation of 95%CI based on original beta and SE_boot
 binf = coef(model_libra)[2] - 1.96*sqrt(V_tot)
@@ -180,12 +172,9 @@ bsup = coef(model_libra)[2] + 1.96*sqrt(V_tot)
 ###    Forest Plot     ###
 ##########################
 
-
-#c = 1.106 # original
-c = round(exp(original_estimate),3) # boot
+c = round(exp(coef(model_libra)[2]),3) # boot
 d = round(exp(binf),3)
 e = round(exp(bsup),3)
-c(c,d,e)
 f = "("
 g = ","
 h = ")"
@@ -193,7 +182,7 @@ space = " "
 i = paste(c,space,f,d,g,space,e,h, sep="")
 j = paste(d,g,space,e, sep="")
 #
-fig1a = data.frame(treatmentgroup = "999999 - LIBRA score (reversed scale)",
+fig1a = data.frame(treatmentgroup = "LIBRA score (reversed scale)",
                    rr     = c,
                    low_ci = d,
                    up_ci  = e,
@@ -202,81 +191,10 @@ fig1a = data.frame(treatmentgroup = "999999 - LIBRA score (reversed scale)",
                    X = "COPD",
                    no = 1)
 
-
-## COMPO ##
-
-original_estimate = c(0.491, 
-                      0.169,
-                      0.046, 
-                      -1.038, 
-                      -0.457,
-                      -0.433,
-                      -0.197,
-                      0.012,
-                      0.026,
-                      0.094,
-                      0.144,
-                      0.226)
-
-# calculation of SE on boot
-tab = tab_boot_P50_P75_compo
-sd  = sd_boot_P50_P75_compo
-mean_estimate = rowSums(tab[3:14,])/1000
-V_within  = rowSums(sd[2:13,]**2)/1000
-V_between = (rowSums(tab[3:14,] - mean_estimate)**2)/(1000-1)
-V_tot     = V_within + V_between + V_between/1000
-
-# calculation of 95%CI based on original beta and SE_boot
-binf      = original_estimate - 1.96*sqrt(V_tot)
-bsup      = original_estimate + 1.96*sqrt(V_tot)
-#
-u = c("9999 - High cognitive activity",
-      "999 - Low-to-moderate alcohol",
-      "99 - Healthy diet",
-      #
-      "9 - Coronary heart disease",
-      "8 - Current smoker",
-      "7 - Obesity",
-      "6 - Depressive symptoms",
-      "5 - Hypertension",
-      "4 - Diabetes",
-      "3 - Physical inactivity",
-      "2 - Renal dysfunction",
-      "1 - High cholesterol")
-#
-c = round(exp(original_estimate),3)
-d = round(exp(binf),3)
-e = round(exp(bsup),3)
-f = "("
-g = ","
-h = ")"
-space = " "
-i = paste(c,space,f,d,g,space,e,h, sep="")
-j = paste(d,g,space,e, sep="")
-
-#
-fig11a = data.frame(treatmentgroup = u,
-                    rr     = c,
-                    low_ci = d,
-                    up_ci  = e,
-                    RR_ci = i,
-                    ci = j,
-                    X = "COPD",
-                    no = seq(4,15,1))
-
-forestplot_P50_P75 = as.data.frame(rbind(fig1a,fig11a))
-
-write.table(forestplot_P50_P75, "C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/forestplot_P50_P75.txt",sep="\t",  row.names=F)
-
-forestplot_P50_P75  = read.table(file="C:/Users/mwagner4/Downloads/LIBRA score/3C/Boot_e4_MMSEsplines/forestplot_P50_P75.txt",header=T,sep="\t",dec=".")
-
-
 ##### LIBRA score alone #####
 
-##### ALL COMPONENTS  #####
-
 forest <-  ggplot(
-  data = forestplot_P50_P75,
+  data = fig1a,
   aes(x = treatmentgroup, y = rr, ymin = low_ci, ymax = up_ci)) +
   geom_pointrange(aes(col = treatmentgroup), size=0.4) +
   geom_hline(yintercept = 1, colour = "grey", lty = 2, size=0.7) +
@@ -297,7 +215,7 @@ forest <-  ggplot(
     plot.title = element_text("none")) +
   coord_flip()
 
-dat_table <- forestplot_P50_P75 %>%
+dat_table <- fig1a %>%
   select(treatmentgroup, X, RR_ci) %>%
   tidyr::pivot_longer(c(RR_ci), names_to = "stat") %>%
   mutate(stat = factor(stat, levels = c("RR_ci")))
