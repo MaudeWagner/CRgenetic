@@ -7,7 +7,7 @@ This repository provides R codes used to:
 
 (ii) assign CRgen status based on corrected individual slopes
 
-(iii) account for the uncertainty in the corrected slopes estimated in the first stage using using parametric bootstraps with 1000 replicates
+(iii) account for the uncertainty in the corrected slopes estimated in the first stage using parametric bootstraps
 
 (iv) yield associations of CRgen with LIBRA in forest plots (cf. Figure below)
 
