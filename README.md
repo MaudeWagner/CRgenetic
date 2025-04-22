@@ -1,6 +1,6 @@
 ### Title: Associations of the LIBRA index with cognitive resilience to genetic susceptibility to dementia 
 
-This repository provides a R code used to:
+The R code provided in this repository can be used to:
 
 (i) model trajectories of global cognition using a latent process mixed model for multivariate longitudinal outcomes
 
@@ -8,9 +8,9 @@ This repository provides a R code used to:
 
 (iii) examine the association of LIBRA on CRgen status using a logistic regression model
 
-(iv) account for the uncertainty in the corrected slopes estimated in the first stage using parametric bootstraps
+(iv) do parametric bootstrap to account for the uncertainty in the corrected slopes estimated in the first stage of our modeling strategy
 
-(v) display in a forest plot the Odds Ratios obtained in (iii) and the correct 95% confidence interval calculated using the total variance obtained by boostrap in (iv).
+(v) represent a forest plot of Odds Ratios obtained in (iii) and the correct 95% confidence interval calculated using the total variance obtained by boostrap in (iv).
 
 
 Figure. Multivariable-adjusted associations between the baseline LIfestyle for BRAin health (LIBRA) risk score, its individual components, and the odds of cognitive resilience in ApoE-ɛ4 carriers. 
